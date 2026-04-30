@@ -19,7 +19,7 @@ export async function parseCarrierPdf(
   internalEvents: string[]
 ): Promise<MappedEvent[]> {
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
+  const model = genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
 
   const prompt = `
 You are an expert logistics data parser. I am providing you with a PDF document from a carrier containing their tracking event codes.
