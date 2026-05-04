@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Settings, FileText, Upload, Download, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
-import { readExcelData, exportHarmonization } from './utils/excel';
-import { parseCarrierPdf } from './utils/gemini';
+import { readExcelData, exportHarmonization, readExcelToCsv } from './utils/excel';
+import { parseCarrierData } from './utils/gemini';
 import type { MappedEvent } from './utils/gemini';
 
 type Step = 'setup' | 'upload' | 'review';
@@ -21,7 +21,7 @@ function App() {
   const [internalEvents, setInternalEvents] = useState<string[]>([]);
   
   // Upload State
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [carrierFile, setCarrierFile] = useState<File | null>(null);
   const [isParsing, setIsParsing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
@@ -81,19 +81,27 @@ function App() {
   };
 
   const handlePdfUploadAndParse = async () => {
-    if (!pdfFile || !apiKey || internalEvents.length === 0) return;
+    if (!carrierFile || !apiKey || internalEvents.length === 0) return;
     
     setIsParsing(true);
     setError(null);
     
     try {
-      const base64 = await fileToBase64(pdfFile);
-      const results = await parseCarrierPdf(apiKey, base64, codeFormat, internalEvents, customCodeInstruction);
+      let documentData: string;
+      const isPdf = carrierFile.name.toLowerCase().endsWith('.pdf');
+      
+      if (isPdf) {
+        documentData = await fileToBase64(carrierFile);
+      } else {
+        documentData = await readExcelToCsv(carrierFile);
+      }
+
+      const results = await parseCarrierData(apiKey, documentData, isPdf, codeFormat, internalEvents, customCodeInstruction);
       setMappedEvents(results);
       setStep('review');
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'Failed to parse PDF with Gemini. Please check your API key.');
+      setError(err.message || 'Failed to parse file with Gemini. Please check your API key.');
     } finally {
       setIsParsing(false);
     }
@@ -196,6 +204,26 @@ function App() {
               )}
             </div>
 
+            <button 
+              className="btn-primary" 
+              style={{ marginTop: '16px' }}
+              onClick={() => setStep('upload')}
+              disabled={!apiKey || internalEvents.length === 0}
+            >
+              Next Step
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* UPLOAD STEP */}
+      {step === 'upload' && (
+        <div className="glass-panel animate-fade-in" style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'center' }}>
+          <h2 style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+            <FileText size={24} className="text-primary" /> Upload Carrier Data
+          </h2>
+          
+          <div style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '24px' }}>
             <div>
               <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Carrier Identifier</label>
               <input 
@@ -232,44 +260,26 @@ function App() {
                 </div>
               )}
             </div>
-
-            <button 
-              className="btn-primary" 
-              style={{ marginTop: '16px' }}
-              onClick={() => setStep('upload')}
-              disabled={!apiKey || internalEvents.length === 0 || !carrierName}
-            >
-              Next Step
-            </button>
           </div>
-        </div>
-      )}
-
-      {/* UPLOAD STEP */}
-      {step === 'upload' && (
-        <div className="glass-panel animate-fade-in" style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'center' }}>
-          <h2 style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-            <FileText size={24} className="text-primary" /> Upload Carrier PDF
-          </h2>
           
           <label style={{ 
             display: 'block', border: '2px dashed var(--border-color)', borderRadius: '16px', 
             padding: '60px 20px', cursor: 'pointer', transition: 'all 0.2s',
-            background: pdfFile ? 'rgba(99, 102, 241, 0.05)' : 'transparent',
-            borderColor: pdfFile ? 'var(--primary)' : 'var(--border-color)'
+            background: carrierFile ? 'rgba(99, 102, 241, 0.05)' : 'transparent',
+            borderColor: carrierFile ? 'var(--primary)' : 'var(--border-color)'
           }}>
             <input 
               type="file" 
-              accept=".pdf" 
+              accept=".pdf,.xlsx,.xls,.csv" 
               style={{ display: 'none' }}
-              onChange={e => setPdfFile(e.target.files?.[0] || null)}
+              onChange={e => setCarrierFile(e.target.files?.[0] || null)}
             />
-            <Upload size={48} style={{ margin: '0 auto 16px', color: pdfFile ? 'var(--primary)' : 'var(--text-muted)' }} />
+            <Upload size={48} style={{ margin: '0 auto 16px', color: carrierFile ? 'var(--primary)' : 'var(--text-muted)' }} />
             <p style={{ fontSize: '18px', fontWeight: 500, marginBottom: '8px' }}>
-              {pdfFile ? pdfFile.name : 'Click to upload or drag and drop'}
+              {carrierFile ? carrierFile.name : 'Click to upload or drag and drop'}
             </p>
             <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>
-              Upload the PDF containing the carrier's tracking codes.
+              Upload the PDF or Excel/CSV file containing the carrier's tracking codes.
             </p>
           </label>
 
@@ -278,7 +288,7 @@ function App() {
             <button 
               className="btn-primary" 
               onClick={handlePdfUploadAndParse}
-              disabled={!pdfFile || isParsing}
+              disabled={!carrierFile || !carrierName || isParsing}
             >
               {isParsing ? (
                 <><RefreshCw size={18} className="animate-spin" style={{ animation: 'spin 1s linear infinite' }} /> Parsing with AI...</>

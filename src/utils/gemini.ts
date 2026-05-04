@@ -12,9 +12,10 @@ export interface MappedEvent extends CarrierEvent {
   confidence: 'high' | 'medium' | 'low';
 }
 
-export async function parseCarrierPdf(
+export async function parseCarrierData(
   apiKey: string,
-  pdfBase64: string,
+  documentData: string,
+  isPdf: boolean,
   codeFormat: 'concat' | 'single' | 'custom',
   internalEvents: string[],
   customInstruction: string = ''
@@ -23,7 +24,7 @@ export async function parseCarrierPdf(
   const model = genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
 
   const prompt = `
-You are an expert logistics data parser. I am providing you with a PDF document from a carrier containing their tracking event codes.
+You are an expert logistics data parser. I am providing you with ${isPdf ? 'a PDF document' : 'raw tabular data (CSV)'} from a carrier containing their tracking event codes.
 Your task is to extract all the event codes and their descriptions, and then map them to our internal event codes.
 
 Configuration:
@@ -52,15 +53,15 @@ Return the result STRICTLY as a JSON array of objects with the following schema:
 Do not include any markdown formatting like \`\`\`json in your response. Just return the raw JSON array.
 `;
 
-  const pdfPart: Part = {
-    inlineData: {
-      data: pdfBase64,
-      mimeType: 'application/pdf',
-    },
-  };
+  let parts: (string | Part)[] = [];
+  if (isPdf) {
+    parts = [prompt, { inlineData: { data: documentData, mimeType: 'application/pdf' } }];
+  } else {
+    parts = [prompt + `\n\n--- CARRIER DATA ---\n${documentData}\n--- END CARRIER DATA ---\n`];
+  }
 
   try {
-    const result = await model.generateContent([prompt, pdfPart]);
+    const result = await model.generateContent(parts);
     const responseText = result.response.text().trim();
 
     // Clean up potential markdown blocks if the model still includes them
