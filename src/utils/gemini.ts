@@ -16,7 +16,8 @@ export async function parseCarrierPdf(
   apiKey: string,
   pdfBase64: string,
   codeFormat: 'concat' | 'single' | 'custom',
-  internalEvents: string[]
+  internalEvents: string[],
+  customInstruction: string = ''
 ): Promise<MappedEvent[]> {
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
@@ -26,7 +27,7 @@ You are an expert logistics data parser. I am providing you with a PDF document 
 Your task is to extract all the event codes and their descriptions, and then map them to our internal event codes.
 
 Configuration:
-- Code Format: ${codeFormat === 'concat' ? 'Concatenate Code 1 and Code 2 into a single string (e.g., if Code1 is AAR and Code2 is CFM, the final code is AARCFM)' : 'Use the single event code provided'}.
+- Code Format: ${codeFormat === 'concat' ? 'Concatenate Code 1 and Code 2 into a single string (e.g., if Code1 is AAR and Code2 is CFM, the final code is AARCFM)' : codeFormat === 'single' ? 'Use the single event code provided' : customInstruction}.
 - Internal Events Available:
 ${internalEvents.join(', ')}
 
@@ -61,7 +62,7 @@ Do not include any markdown formatting like \`\`\`json in your response. Just re
   try {
     const result = await model.generateContent([prompt, pdfPart]);
     const responseText = result.response.text().trim();
-    
+
     // Clean up potential markdown blocks if the model still includes them
     let jsonString = responseText;
     if (jsonString.startsWith('\`\`\`json')) {

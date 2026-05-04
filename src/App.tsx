@@ -12,7 +12,8 @@ function App() {
   // Setup State
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('geminiApiKey') || '');
   const [carrierName, setCarrierName] = useState('s2.carrier.com');
-  const [codeFormat, setCodeFormat] = useState<'concat' | 'single'>('concat');
+  const [codeFormat, setCodeFormat] = useState<'concat' | 'single' | 'custom'>('concat');
+  const [customCodeInstruction, setCustomCodeInstruction] = useState('');
   const [internalEvents, setInternalEvents] = useState<string[]>([]);
   
   // Upload State
@@ -60,7 +61,7 @@ function App() {
     
     try {
       const base64 = await fileToBase64(pdfFile);
-      const results = await parseCarrierPdf(apiKey, base64, codeFormat, internalEvents);
+      const results = await parseCarrierPdf(apiKey, base64, codeFormat, internalEvents, customCodeInstruction);
       setMappedEvents(results);
       setStep('review');
     } catch (err: any) {
@@ -174,7 +175,21 @@ function App() {
               >
                 <option value="concat">Concatenate codes (e.g. Code1 + Code2 = AARCFM)</option>
                 <option value="single">Single code provided</option>
+                <option value="custom">Custom Instruction</option>
               </select>
+              {codeFormat === 'custom' && (
+                <div style={{ marginTop: '12px' }}>
+                  <label style={{ display: 'block', marginBottom: '8px', fontSize: '13px', fontWeight: 500 }}>Custom Extraction Instruction</label>
+                  <textarea 
+                    className="input-field"
+                    placeholder="e.g. 'There are two code columns. Only extract the first column and ignore the second.'"
+                    value={customCodeInstruction}
+                    onChange={e => setCustomCodeInstruction(e.target.value)}
+                    rows={2}
+                    style={{ resize: 'vertical' }}
+                  />
+                </div>
+              )}
             </div>
 
             <button 
