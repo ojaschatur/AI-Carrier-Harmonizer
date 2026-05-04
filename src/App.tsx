@@ -23,6 +23,7 @@ function App() {
   // Upload State
   const [carrierFile, setCarrierFile] = useState<File | null>(null);
   const [isParsing, setIsParsing] = useState(false);
+  const [progressMsg, setProgressMsg] = useState('');
   const [error, setError] = useState<string | null>(null);
   
   // Review State
@@ -81,29 +82,53 @@ function App() {
   };
 
   const handlePdfUploadAndParse = async () => {
-    if (!carrierFile || !apiKey || internalEvents.length === 0) return;
+    if (!carrierFile || !apiKey || internalEvents.length === 0 || !carrierName) return;
     
     setIsParsing(true);
+    setProgressMsg('Preparing file...');
     setError(null);
     
     try {
-      let documentData: string;
       const isPdf = carrierFile.name.toLowerCase().endsWith('.pdf');
       
       if (isPdf) {
-        documentData = await fileToBase64(carrierFile);
+        setProgressMsg('Uploading PDF to Gemini...');
+        const documentData = await fileToBase64(carrierFile);
+        const results = await parseCarrierData(apiKey, documentData, isPdf, codeFormat, internalEvents, customCodeInstruction);
+        setMappedEvents(results);
       } else {
-        documentData = await readExcelToCsv(carrierFile);
+        setProgressMsg('Reading Excel/CSV data...');
+        const documentData = await readExcelToCsv(carrierFile);
+        
+        // Auto-chunking for tabular data to bypass AI token limits
+        const lines = documentData.split('\n');
+        const header = lines[0] || '';
+        const dataLines = lines.slice(1).filter(l => l.trim().length > 0);
+        
+        const CHUNK_SIZE = 100;
+        const totalChunks = Math.ceil(dataLines.length / CHUNK_SIZE);
+        
+        let allResults: MappedEvent[] = [];
+        
+        for (let i = 0; i < totalChunks; i++) {
+          setProgressMsg(`Parsing chunk ${i + 1} of ${totalChunks}...`);
+          const chunkLines = dataLines.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+          const chunkData = [header, ...chunkLines].join('\n');
+          
+          const chunkResults = await parseCarrierData(apiKey, chunkData, isPdf, codeFormat, internalEvents, customCodeInstruction);
+          allResults = [...allResults, ...chunkResults];
+        }
+        
+        setMappedEvents(allResults);
       }
 
-      const results = await parseCarrierData(apiKey, documentData, isPdf, codeFormat, internalEvents, customCodeInstruction);
-      setMappedEvents(results);
       setStep('review');
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'Failed to parse file with Gemini. Please check your API key.');
+      setError(err.message || 'Failed to parse file with Gemini. Please check your API key or wait a moment if rate limited.');
     } finally {
       setIsParsing(false);
+      setProgressMsg('');
     }
   };
 
@@ -291,7 +316,12 @@ function App() {
               disabled={!carrierFile || !carrierName || isParsing}
             >
               {isParsing ? (
-                <><RefreshCw size={18} className="animate-spin" style={{ animation: 'spin 1s linear infinite' }} /> Parsing with AI...</>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <RefreshCw size={18} className="animate-spin" style={{ animation: 'spin 1s linear infinite' }} /> Parsing with AI...
+                  </div>
+                  {progressMsg && <span style={{ fontSize: '11px', fontWeight: 'normal', opacity: 0.8 }}>{progressMsg}</span>}
+                </div>
               ) : (
                 'Parse and Map Events'
               )}
