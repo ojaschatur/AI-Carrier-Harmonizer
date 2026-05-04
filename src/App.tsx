@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Settings, FileText, Upload, Download, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
-import { parseInternalEvents, exportHarmonization } from './utils/excel';
+import { readExcelData, exportHarmonization } from './utils/excel';
 import { parseCarrierPdf } from './utils/gemini';
 import type { MappedEvent } from './utils/gemini';
 
@@ -14,6 +14,10 @@ function App() {
   const [carrierName, setCarrierName] = useState('s2.carrier.com');
   const [codeFormat, setCodeFormat] = useState<'concat' | 'single' | 'custom'>('concat');
   const [customCodeInstruction, setCustomCodeInstruction] = useState('');
+  
+  const [excelData, setExcelData] = useState<string[][]>([]);
+  const [excelHeaders, setExcelHeaders] = useState<string[]>([]);
+  const [selectedColumnIdx, setSelectedColumnIdx] = useState<number>(0);
   const [internalEvents, setInternalEvents] = useState<string[]>([]);
   
   // Upload State
@@ -32,13 +36,36 @@ function App() {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const events = await parseInternalEvents(file);
-      setInternalEvents(events);
+      const { headers, rawData } = await readExcelData(file);
+      setExcelHeaders(headers);
+      setExcelData(rawData);
+      
+      // Auto-detect a column that looks like 'code' or 'event'
+      const codeIdx = headers.findIndex(h => {
+        const lower = h.toLowerCase();
+        return lower.includes('code') || lower.includes('event');
+      });
+      setSelectedColumnIdx(codeIdx >= 0 ? codeIdx : 0);
     } catch (err) {
       console.error(err);
       setError('Failed to parse internal events Excel file.');
     }
   };
+
+  // Recompute internal events when data or column selection changes
+  useEffect(() => {
+    if (excelData.length > 0 && selectedColumnIdx >= 0) {
+      const events: string[] = [];
+      for (const row of excelData) {
+        if (row.length > selectedColumnIdx && row[selectedColumnIdx]) {
+          events.push(row[selectedColumnIdx]);
+        }
+      }
+      setInternalEvents(Array.from(new Set(events)).filter(Boolean));
+    } else {
+      setInternalEvents([]);
+    }
+  }, [excelData, selectedColumnIdx]);
 
   const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -93,16 +120,16 @@ function App() {
 
       {/* Stepper */}
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '40px', position: 'relative' }}>
-        <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, height: '2px', background: 'var(--border-color)', zIndex: -1, transform: 'translateY(-50%)' }}></div>
+        <div style={{ position: 'absolute', top: '16px', left: 0, right: 0, height: '2px', background: 'var(--border-color)', zIndex: -1, transform: 'translateY(-50%)' }}></div>
         {(['setup', 'upload', 'review'] as Step[]).map((s, i) => (
           <div key={s} style={{ 
             display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px',
-            background: 'var(--bg-color)', padding: '0 16px'
+            background: 'transparent', padding: '0 16px'
           }}>
             <div style={{ 
               width: '32px', height: '32px', borderRadius: '50%', 
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: step === s || (step === 'review' && i < 2) || (step === 'upload' && i === 0) ? 'var(--primary)' : 'var(--card-bg)',
+              background: step === s || (step === 'review' && i < 2) || (step === 'upload' && i === 0) ? 'var(--primary)' : 'var(--bg-color)',
               color: 'white', fontWeight: 'bold', border: '1px solid var(--border-color)'
             }}>
               {i + 1}
@@ -148,10 +175,24 @@ function App() {
                 onChange={handleInternalEventsUpload}
                 style={{ padding: '8px' }}
               />
-              {internalEvents.length > 0 && (
-                <p style={{ fontSize: '12px', color: 'var(--success)', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <CheckCircle2 size={14} /> Loaded {internalEvents.length} internal events.
-                </p>
+              
+              {excelHeaders.length > 0 && (
+                <div style={{ marginTop: '12px', background: 'rgba(99, 102, 241, 0.05)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                  <label style={{ display: 'block', marginBottom: '8px', fontSize: '13px', fontWeight: 500 }}>Select Column Containing Events</label>
+                  <select 
+                    className="input-field"
+                    value={selectedColumnIdx}
+                    onChange={e => setSelectedColumnIdx(Number(e.target.value))}
+                    style={{ padding: '6px', fontSize: '13px' }}
+                  >
+                    {excelHeaders.map((header, idx) => (
+                      <option key={idx} value={idx}>{header}</option>
+                    ))}
+                  </select>
+                  <p style={{ fontSize: '12px', color: 'var(--success)', marginTop: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <CheckCircle2 size={14} /> Loaded {internalEvents.length} internal events.
+                  </p>
+                </div>
               )}
             </div>
 

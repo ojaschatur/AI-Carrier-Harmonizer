@@ -1,7 +1,12 @@
 import * as XLSX from 'xlsx';
 import type { MappedEvent } from './gemini';
 
-export function parseInternalEvents(file: File): Promise<string[]> {
+export interface ExcelDataResult {
+  headers: string[];
+  rawData: string[][];
+}
+
+export function readExcelData(file: File): Promise<ExcelDataResult> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -12,21 +17,22 @@ export function parseInternalEvents(file: File): Promise<string[]> {
         const worksheet = workbook.Sheets[firstSheetName];
         
         // Convert sheet to JSON array (array of arrays)
-        const jsonData = XLSX.utils.sheet_to_json<string[]>(worksheet, { header: 1 });
+        const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1 });
         
-        // Assuming first row is header, and 'Code' is the first column.
-        // We'll skip the header and extract the first column.
-        const events: string[] = [];
-        for (let i = 1; i < jsonData.length; i++) {
-          const row = jsonData[i];
-          if (row && row.length > 0 && row[0]) {
-            events.push(row[0].toString().trim());
-          }
+        if (jsonData.length === 0) {
+          resolve({ headers: [], rawData: [] });
+          return;
         }
+
+        // Extract headers from the first row, ensuring strings
+        const headers = (jsonData[0] || []).map((h, i) => h ? h.toString() : `Column ${i + 1}`);
         
-        // Remove duplicates and empty strings
-        const uniqueEvents = Array.from(new Set(events)).filter(Boolean);
-        resolve(uniqueEvents);
+        // Convert the rest of the rows to strings
+        const rawData = jsonData.slice(1).map(row => 
+          (row || []).map(cell => cell != null ? cell.toString().trim() : '')
+        );
+
+        resolve({ headers, rawData });
       } catch (error) {
         reject(error);
       }
